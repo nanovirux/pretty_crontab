@@ -1,0 +1,31 @@
+# Ignore build output
+/target/
+
+# Ignore Rust-specific files
+**/*.rs.bk   # Backup files for Rust source files
+**/*.rs~     # Backup files
+
+# Ignore compiled binaries (for both debug and release builds)
+target/
+*.rs.bk
+*.rs~
+
+# Ignore Cargo.lock if you're developing a library
+# But keep it if you're developing an executable
+# (this is a common convention)
+Cargo.lock
+
+# Ignore IDE and editor-specific files
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+*.swp
+*.bak
+
+# Ignore system-specific files
+.DS_Store         # macOS
+Thumbs.db         # Windows
+
+# Ignore environment files
+.env
