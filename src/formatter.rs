@@ -1,9 +1,8 @@
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
-use std::io::Write;  // This import is necessary for `write!` to work with StandardStream
+use std::io::Write;
 
 pub fn print_pretty_crontab(crontab: &str) {
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
-
     for line in crontab.lines() {
         if line.trim().is_empty() {
             continue; // Skip empty lines
@@ -31,4 +30,3 @@ pub fn print_pretty_crontab(crontab: &str) {
         }
     }
 }
-
