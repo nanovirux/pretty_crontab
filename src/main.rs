@@ -1,6 +1,6 @@
-use std::{collections::{BTreeMap, HashMap}, process::Command};
+use std::{collections::{BTreeMap, HashMap}, fs, process::Command};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
-use std::io::Write;
+use std::io::{self, Write};
 use clap::Parser;
 
 /// A cron viewer that pretty-prints crontab entries or shows histograms and detailed monthly breakdown.
@@ -26,17 +26,27 @@ struct Args {
     /// Detailed breakdown for a specific month (name or number)
     #[arg(long = "chart-month-detail", value_name = "MONTH")]
     chart_month_detail: Option<String>,
+
+    /// Path to a specific cron file (defaults to `crontab -l`)
+    #[arg(long = "file", value_name = "FILE")]
+    file: Option<String>,
 }
 
-fn main() {
+fn main() -> io::Result<()> {
     let args = Args::parse();
 
-    let output = Command::new("crontab")
-        .arg("-l")
-        .output()
-        .expect("Failed to execute `crontab -l`");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let lines: Vec<&str> = stdout
+    // Load cron content from file or `crontab -l`
+    let content = if let Some(path) = args.file.as_deref() {
+        fs::read_to_string(path)?
+    } else {
+        let output = Command::new("crontab")
+            .arg("-l")
+            .output()
+            .expect("Failed to execute `crontab -l`");
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+
+    let lines: Vec<&str> = content
         .lines()
         .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
         .collect();
@@ -52,6 +62,8 @@ fn main() {
     } else {
         pretty_print(&lines);
     }
+
+    Ok(())
 }
 
 /// Pretty-print each crontab entry with human-readable schedule and colorized output.
@@ -64,7 +76,12 @@ fn pretty_print(lines: &[&str]) {
 
         let mut out = StandardStream::stdout(ColorChoice::Always);
         out.set_color(ColorSpec::new().set_fg(Some(Color::Green))).unwrap();
-        writeln!(&mut out, "Schedule:   {}", cron_to_human_readable(m, h, dom, mon, dow)).unwrap();
+        writeln!(
+            &mut out,
+            "Schedule:   {}",
+            cron_to_human_readable(m, h, dom, mon, dow)
+        )
+        .unwrap();
         out.reset().unwrap();
 
         out.set_color(ColorSpec::new().set_fg(Some(Color::Magenta))).unwrap();
@@ -84,13 +101,11 @@ fn draw_hourly_histogram(lines: &[&str]) {
 
     println!("\n hourly distribution of cron jobs\n");
 
-    // wildcard bucket
     if let Some(&count) = counts.get("*") {
         let bar = "█".repeat(count);
         println!("{:>3} │ {:<4} {}", "any", count, bar);
     }
 
-    // numeric hours sorted
     let mut hours: Vec<u8> = counts
         .keys()
         .filter_map(|k| if k != "*" { k.parse().ok() } else { None })
@@ -114,6 +129,7 @@ fn draw_dow_histogram(lines: &[&str]) {
         if cols.len() < 6 { continue; }
         *counts.entry(cols[4].to_string()).or_default() += 1;
     }
+
     println!("\n weekday distribution of cron jobs\n");
     for (dow, &count) in &counts {
         let label = if dow == "*" {
@@ -135,15 +151,14 @@ fn draw_month_histogram(lines: &[&str]) {
         if cols.len() < 6 { continue; }
         *counts.entry(cols[3].to_string()).or_default() += 1;
     }
+
     println!("\n monthly distribution of cron jobs\n");
 
-    // wildcard first
     if let Some(&count) = counts.get("*") {
         let bar = "█".repeat(count);
         println!("{:>9} │ {:<4} {}", "any", count, bar);
     }
 
-    // months 1-12 in order
     for month_idx in 1..=12 {
         let key = month_idx.to_string();
         if let Some(&count) = counts.get(&key) {
@@ -166,8 +181,10 @@ fn draw_month_detail(lines: &[&str], month_arg: &str) {
             _ => { eprintln!("Unknown month: {}", month_arg); return; }
         }
     };
+
     let mut day_counts: BTreeMap<u8, usize> = BTreeMap::new();
     let mut hour_by_day: BTreeMap<u8, BTreeMap<String, usize>> = BTreeMap::new();
+
     for &l in lines {
         let cols: Vec<&str> = l.split_whitespace().collect();
         if cols.len() < 6 { continue; }
@@ -183,6 +200,7 @@ fn draw_month_detail(lines: &[&str], month_arg: &str) {
             *hours_map.entry(hour_label).or_default() += 1;
         }
     }
+
     println!("\nDetails for {} (month {})\n", month_name(&month_num.to_string()), month_num);
     println!(" Day-of-month distribution\n");
     for (&day, &count) in &day_counts {
