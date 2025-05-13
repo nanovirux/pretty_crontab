@@ -3,10 +3,10 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use std::io::Write;
 use clap::Parser;
 
-/// A cron viewer that pretty-prints crontab entries or shows histograms and detailed monthly breakdowns.
+/// A cron viewer that pretty-prints crontab entries or shows histograms and detailed monthly breakdown.
 #[derive(Parser)]
 #[command(
-    name = "cron-viewer",
+    name = "pretty_crontab",
     about = "Pretty-prints your crontab or shows histograms by hour, weekday, or month",
     long_about = None
 )]
@@ -127,30 +127,36 @@ fn draw_dow_histogram(lines: &[&str]) {
     println!();
 }
 
-/// Draw a histogram of cron jobs per month.
+/// Draw a histogram of cron jobs per month in calendar order.
 fn draw_month_histogram(lines: &[&str]) {
-    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut counts: HashMap<String, usize> = HashMap::new();
     for &l in lines {
         let cols: Vec<&str> = l.split_whitespace().collect();
         if cols.len() < 6 { continue; }
         *counts.entry(cols[3].to_string()).or_default() += 1;
     }
     println!("\n monthly distribution of cron jobs\n");
-    for (mon, &count) in &counts {
-        let label = if mon == "*" {
-            "any".to_string()
-        } else {
-            month_name(mon).to_string()
-        };
+
+    // wildcard first
+    if let Some(&count) = counts.get("*") {
         let bar = "█".repeat(count);
-        println!("{:>9} │ {:<4} {}", label, count, bar);
+        println!("{:>9} │ {:<4} {}", "any", count, bar);
+    }
+
+    // months 1-12 in order
+    for month_idx in 1..=12 {
+        let key = month_idx.to_string();
+        if let Some(&count) = counts.get(&key) {
+            let label = month_name(&key);
+            let bar = "█".repeat(count);
+            println!("{:>9} │ {:<4} {}", label, count, bar);
+        }
     }
     println!();
 }
 
 /// Detailed breakdown: for given month, show jobs per day-of-month and per-hour for each day.
 fn draw_month_detail(lines: &[&str], month_arg: &str) {
-    // Determine month number 1–12
     let month_num: u8 = match month_arg.parse() {
         Ok(n) if (1..=12).contains(&n) => n,
         _ => match month_arg.to_lowercase().as_str() {
@@ -160,22 +166,14 @@ fn draw_month_detail(lines: &[&str], month_arg: &str) {
             _ => { eprintln!("Unknown month: {}", month_arg); return; }
         }
     };
-
-    // Collect counts by day and by hour within each day
     let mut day_counts: BTreeMap<u8, usize> = BTreeMap::new();
     let mut hour_by_day: BTreeMap<u8, BTreeMap<String, usize>> = BTreeMap::new();
-
     for &l in lines {
         let cols: Vec<&str> = l.split_whitespace().collect();
         if cols.len() < 6 { continue; }
-        // filter by month or wildcard
-        if cols[3] != "*" && cols[3].parse::<u8>().ok() != Some(month_num) {
-            continue;
-        }
-        // parse day-of-month
+        if cols[3] != "*" && cols[3].parse::<u8>().ok() != Some(month_num) { continue; }
         if let Ok(dom) = cols[2].parse::<u8>() {
             *day_counts.entry(dom).or_default() += 1;
-            // hour label or any
             let hour_label = if cols[1] == "*" {
                 "any".to_string()
             } else {
@@ -185,14 +183,12 @@ fn draw_month_detail(lines: &[&str], month_arg: &str) {
             *hours_map.entry(hour_label).or_default() += 1;
         }
     }
-
     println!("\nDetails for {} (month {})\n", month_name(&month_num.to_string()), month_num);
     println!(" Day-of-month distribution\n");
     for (&day, &count) in &day_counts {
         let bar = "█".repeat(count);
         println!("{:>2} │ {:<4} {}", day, count, bar);
     }
-
     println!("\n Hourly breakdown by day\n");
     for (&day, hours) in &hour_by_day {
         println!("Day {}: {} jobs", day, day_counts.get(&day).copied().unwrap_or(0));
@@ -212,7 +208,6 @@ fn cron_to_human_readable(
     month: &str,
     day_of_week: &str,
 ) -> String {
-    // time portion
     let time_part = match (minute, hour) {
         ("*", "*") => "every minute".into(),
         ("*", h) => {
@@ -225,8 +220,6 @@ fn cron_to_human_readable(
         }
         (m, h) => format_time(h, m),
     };
-
-    // special: wildcard month + specific dom + dow
     if month == "*" && day_of_month != "*" && day_of_week != "*" {
         return format!(
             "{} every month on {} and every {}",
@@ -235,7 +228,6 @@ fn cron_to_human_readable(
             dow_name(day_of_week)
         );
     }
-    // special: specific month + wildcard dom + dow
     if month != "*" && day_of_month == "*" && day_of_week != "*" {
         return format!(
             "{} every {} in {}",
@@ -244,8 +236,6 @@ fn cron_to_human_readable(
             month_name(month)
         );
     }
-
-    // fallback chaining
     let mut desc = time_part;
     if month != "*" {
         desc.push_str(&format!(" on {}", month_name(month)));
