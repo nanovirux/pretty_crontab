@@ -30,6 +30,10 @@ struct Args {
     /// Path to a specific cron file (defaults to `crontab -l`)
     #[arg(long = "file", value_name = "FILE")]
     file: Option<String>,
+
+    /// Filter cron entries by substring match
+    #[arg(long, value_name = "PATTERN")]
+    filter: Option<String>,
 }
 
 fn main() -> io::Result<()> {
@@ -46,11 +50,18 @@ fn main() -> io::Result<()> {
         String::from_utf8_lossy(&output.stdout).into_owned()
     };
 
-    let lines: Vec<&str> = content
+    // Collect non-empty, non-comment lines
+    let mut lines: Vec<&str> = content
         .lines()
         .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
         .collect();
 
+    // Apply filter if provided
+    if let Some(pattern) = &args.filter {
+        lines = lines.into_iter().filter(|l| l.contains(pattern)).collect();
+    }
+
+    // Dispatch based on flags
     if let Some(month_arg) = &args.chart_month_detail {
         draw_month_detail(&lines, month_arg);
     } else if args.chart {
@@ -80,8 +91,7 @@ fn pretty_print(lines: &[&str]) {
             &mut out,
             "Schedule:   {}",
             cron_to_human_readable(m, h, dom, mon, dow)
-        )
-        .unwrap();
+        ).unwrap();
         out.reset().unwrap();
 
         out.set_color(ColorSpec::new().set_fg(Some(Color::Magenta))).unwrap();
